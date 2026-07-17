@@ -21,9 +21,7 @@ class _MapPageState extends State<MapPage> {
   void _changeZoom(double delta) {
     final camera = _mapController.camera;
 
-    final newZoom = (camera.zoom + delta)
-        .clamp(_minZoom, _maxZoom)
-        .toDouble();
+    final newZoom = (camera.zoom + delta).clamp(_minZoom, _maxZoom).toDouble();
 
     _mapController.move(camera.center, newZoom);
   }
@@ -35,9 +33,7 @@ class _MapPageState extends State<MapPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('地图示例'),
-      ),
+      appBar: AppBar(title: const Text('地图示例')),
       body: Stack(
         children: [
           FlutterMap(
@@ -57,12 +53,11 @@ class _MapPageState extends State<MapPage> {
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
 
                 // 必须替换为你的真实 Android applicationId。
                 // 同时用于向地图瓦片服务器标识应用。
-                userAgentPackageName: 'com.example.flutter_map_demo',
+                userAgentPackageName: 'com.example.smartbee',
 
                 maxNativeZoom: 19,
               ),
@@ -85,9 +80,7 @@ class _MapPageState extends State<MapPage> {
 
               RichAttributionWidget(
                 attributions: const [
-                  TextSourceAttribution(
-                    'OpenStreetMap contributors',
-                  ),
+                  TextSourceAttribution('OpenStreetMap contributors'),
                 ],
               ),
             ],
@@ -106,7 +99,7 @@ class _MapPageState extends State<MapPage> {
                 ),
                 child: Text(
                   '经度：${_markerPosition.longitude.toStringAsFixed(6)}\n'
-                      '纬度：${_markerPosition.latitude.toStringAsFixed(6)}',
+                  '纬度：${_markerPosition.latitude.toStringAsFixed(6)}',
                 ),
               ),
             ),
