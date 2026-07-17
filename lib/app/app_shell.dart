@@ -1,0 +1,131 @@
+import 'package:flutter/material.dart';
+
+import '../features/live_stream/application/live_stream_controller.dart';
+import '../features/live_stream/infrastructure/capture/webrtc_media_capture_service.dart';
+import '../features/live_stream/infrastructure/publisher/whip_publisher.dart';
+import '../features/live_stream/infrastructure/storage/stream_config_storage.dart';
+import '../features/live_stream/presentation/live_stream_page.dart';
+import '../features/map/map_page.dart';
+
+class AppShell extends StatefulWidget {
+  const AppShell({super.key, this.liveStreamController});
+
+  final LiveStreamController? liveStreamController;
+
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  late final LiveStreamController _liveStreamController;
+  int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _liveStreamController =
+        widget.liveStreamController ??
+        LiveStreamController(
+          captureService: WebRtcMediaCaptureService(),
+          publisherFactory: StreamPublisherFactory.defaults(),
+          storage: StreamConfigStorage(),
+        );
+    _liveStreamController.loadSavedConfig();
+  }
+
+  @override
+  void dispose() {
+    _liveStreamController.dispose();
+    super.dispose();
+  }
+
+  void _selectPage(int index) {
+    setState(() => _selectedIndex = index);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = <Widget>[
+      const MapPage(),
+      LiveStreamPage(controller: _liveStreamController),
+      const _SettingsPage(),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useRail = constraints.maxWidth >= 840;
+        if (useRail) {
+          return Scaffold(
+            body: Row(
+              children: [
+                NavigationRail(
+                  selectedIndex: _selectedIndex,
+                  onDestinationSelected: _selectPage,
+                  labelType: NavigationRailLabelType.all,
+                  destinations: const [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.map_outlined),
+                      selectedIcon: Icon(Icons.map),
+                      label: Text('地图'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.sensors_outlined),
+                      selectedIcon: Icon(Icons.sensors),
+                      label: Text('实时推流'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.settings_outlined),
+                      selectedIcon: Icon(Icons.settings),
+                      label: Text('设置'),
+                    ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  child: IndexedStack(index: _selectedIndex, children: pages),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return Scaffold(
+          body: IndexedStack(index: _selectedIndex, children: pages),
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: _selectPage,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.map_outlined),
+                selectedIcon: Icon(Icons.map),
+                label: '地图',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.sensors_outlined),
+                selectedIcon: Icon(Icons.sensors),
+                label: '实时推流',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                selectedIcon: Icon(Icons.settings),
+                label: '设置',
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SettingsPage extends StatelessWidget {
+  const _SettingsPage();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('设置')),
+      body: const Center(child: Text('设置项将在后续版本扩展')),
+    );
+  }
+}
