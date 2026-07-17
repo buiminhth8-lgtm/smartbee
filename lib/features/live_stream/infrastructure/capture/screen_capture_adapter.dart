@@ -65,6 +65,13 @@ Future<void> stopMediaStream(
       'audioTrackCount': stream.getAudioTracks().length,
     },
   );
+  await disposeMediaStreamSafely(stream, platform: platform);
+}
+
+Future<void> disposeMediaStreamSafely(
+  MediaStream stream, {
+  required String platform,
+}) async {
   for (final track in stream.getTracks()) {
     try {
       await track.stop();
@@ -77,6 +84,7 @@ Future<void> stopMediaStream(
       logScreenCapture(
         'track-stop-failed',
         platform: platform,
+        fields: {'trackId': track.id},
         error: error,
         stackTrace: stackTrace,
       );
@@ -95,62 +103,59 @@ Future<void> stopMediaStream(
   }
 }
 
-MediaStream validateScreenStream(
+MediaStreamTrack validateScreenStream(
   MediaStream stream, {
   required String platform,
 }) {
+  final tracks = stream.getTracks();
   final videoTracks = stream.getVideoTracks();
   final audioTracks = stream.getAudioTracks();
   logScreenCapture(
-    'getDisplayMedia-returned',
+    'validate-stream',
     platform: platform,
     stream: stream,
     fields: {
+      'trackCount': tracks.length,
       'videoTrackCount': videoTracks.length,
       'audioTrackCount': audioTracks.length,
-      'active': stream.active,
     },
   );
 
-  if (videoTracks.isEmpty) {
-    throw const StreamingException(
+  if (tracks.isEmpty) {
+    throw StreamingException(
       StreamingErrorCode.emptyVideoTrack,
-      '系统没有返回视频轨。',
+      '$platform 屏幕采集返回了空媒体流。',
     );
   }
 
-  for (final track in videoTracks) {
-    Map<String, dynamic> settings = const {};
-    try {
-      settings = track.getSettings();
-    } catch (_) {
-      settings = const {};
-    }
-    logScreenCapture(
-      'video-track',
-      platform: platform,
-      fields: {
-        'trackId': track.id,
-        'enabled': track.enabled,
-        'muted': track.muted,
-        'settings': settings,
-      },
+  if (videoTracks.isEmpty) {
+    throw StreamingException(
+      StreamingErrorCode.emptyVideoTrack,
+      '$platform 屏幕采集没有返回视频轨。',
     );
   }
 
-  for (final track in audioTracks) {
-    logScreenCapture(
-      'audio-track',
-      platform: platform,
-      fields: {
-        'trackId': track.id,
-        'enabled': track.enabled,
-        'muted': track.muted,
-      },
+  final videoTrack = videoTracks.first;
+  if (videoTrack.kind != 'video') {
+    throw StreamingException(
+      StreamingErrorCode.emptyVideoTrack,
+      '$platform 屏幕采集返回了无效的视频轨。',
     );
   }
 
-  return stream;
+  logScreenCapture(
+    'validate-stream-success',
+    platform: platform,
+    stream: stream,
+    fields: {
+      'trackId': videoTrack.id,
+      'trackKind': videoTrack.kind,
+      'trackEnabled': videoTrack.enabled,
+      'trackLabel': videoTrack.label,
+    },
+  );
+
+  return videoTrack;
 }
 
 StreamingException mapScreenCaptureException(

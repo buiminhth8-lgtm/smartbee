@@ -53,24 +53,66 @@ class DesktopScreenCaptureAdapter implements ScreenCaptureAdapter {
         },
       );
 
+      final constraints = <String, dynamic>{
+        'video': <String, dynamic>{
+          'deviceId': <String, dynamic>{'exact': selectedSource.id},
+          'mandatory': <String, dynamic>{'frameRate': profile.fps.toDouble()},
+        },
+        'audio': false,
+      };
+
       logScreenCapture('getDisplayMedia-start', platform: platformLabel);
-      final stream = await navigator.mediaDevices.getDisplayMedia(
-        <String, dynamic>{
-          'video': <String, dynamic>{
-            'deviceId': <String, dynamic>{'exact': selectedSource.id},
-            'mandatory': <String, dynamic>{'frameRate': profile.fps.toDouble()},
-          },
-          'audio': false,
+      late final MediaStream stream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+      } catch (error, stackTrace) {
+        logScreenCapture(
+          'getDisplayMedia-failed',
+          platform: platformLabel,
+          error: error,
+          stackTrace: stackTrace,
+        );
+        throw mapScreenCaptureException(error, platform: platformLabel);
+      }
+
+      logScreenCapture(
+        'getDisplayMedia-returned',
+        platform: platformLabel,
+        stream: stream,
+        fields: {
+          'videoTrackCount': stream.getVideoTracks().length,
+          'audioTrackCount': stream.getAudioTracks().length,
         },
       );
-      return validateScreenStream(stream, platform: platformLabel);
+
+      try {
+        validateScreenStream(stream, platform: platformLabel);
+        logScreenCapture(
+          'capture-ready',
+          platform: platformLabel,
+          stream: stream,
+        );
+        return stream;
+      } catch (error, stackTrace) {
+        logScreenCapture(
+          'validate-stream-failed',
+          platform: platformLabel,
+          error: error,
+          stackTrace: stackTrace,
+        );
+        await disposeMediaStreamSafely(stream, platform: platformLabel);
+        rethrow;
+      }
     } catch (error, stackTrace) {
       logScreenCapture(
-        'getDisplayMedia-failed',
+        'start-failed',
         platform: platformLabel,
         error: error,
         stackTrace: stackTrace,
       );
+      if (error is StreamingException) {
+        rethrow;
+      }
       throw mapScreenCaptureException(error, platform: platformLabel);
     }
   }

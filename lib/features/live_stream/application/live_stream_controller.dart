@@ -118,20 +118,34 @@ class LiveStreamController extends ChangeNotifier {
       }
       _addLog('${_state.sourceType.label}预览已打开');
       _setState(_state.copyWith(status: StreamSessionStatus.previewing));
+      debugPrint('[ScreenCapture] step=openPreview-success status=previewing');
     } catch (error, stackTrace) {
       final exception = normalizeStreamingException(error);
-      final status = exception.code == StreamingErrorCode.permissionCancelled
-          ? StreamSessionStatus.idle
-          : StreamSessionStatus.failed;
+      if (exception.code == StreamingErrorCode.permissionCancelled) {
+        _addLog(exception.message);
+        debugPrint(
+          '[ScreenCapture] step=openPreview-cancelled '
+          'status=idle errorType=${error.runtimeType} '
+          'error=${exception.message}',
+        );
+        debugPrintStack(stackTrace: stackTrace);
+        _setState(
+          _state.copyWith(status: StreamSessionStatus.idle, clearError: true),
+        );
+        return;
+      }
       _addLog('采集失败：${exception.message}');
       debugPrint(
         '[ScreenCapture] step=openPreview-failed '
-        'status=${status.name} errorType=${error.runtimeType} '
+        'status=${StreamSessionStatus.failed.name} errorType=${error.runtimeType} '
         'error=${exception.message}',
       );
       debugPrintStack(stackTrace: stackTrace);
       _setState(
-        _state.copyWith(status: status, errorMessage: exception.message),
+        _state.copyWith(
+          status: StreamSessionStatus.failed,
+          errorMessage: exception.message,
+        ),
       );
     } finally {
       _isOpeningPreview = false;

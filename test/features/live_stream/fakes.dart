@@ -175,17 +175,37 @@ StreamPublisherFactory fakePublisherFactory(StreamPublisher publisher) {
 }
 
 class FakeMediaStream extends MediaStream {
-  FakeMediaStream(String id, {bool includeVideo = true}) : super(id, 'fake') {
+  FakeMediaStream(
+    String id, {
+    bool includeVideo = true,
+    bool includeAudio = true,
+    this.throwOnActiveRead = false,
+  }) : super(id, 'fake') {
     _tracks = [
       if (includeVideo) FakeMediaStreamTrack(id: '$id-video', kind: 'video'),
-      FakeMediaStreamTrack(id: '$id-audio', kind: 'audio'),
+      if (includeAudio) FakeMediaStreamTrack(id: '$id-audio', kind: 'audio'),
     ];
+    for (final track in _tracks) {
+      if (track is FakeMediaStreamTrack) {
+        track.owner = this;
+      }
+    }
   }
 
   late final List<MediaStreamTrack> _tracks;
+  final bool throwOnActiveRead;
+  int unsupportedGetterReadCount = 0;
+  int disposeCount = 0;
+  int stopTrackCount = 0;
 
   @override
-  bool? get active => true;
+  bool? get active {
+    unsupportedGetterReadCount++;
+    if (throwOnActiveRead) {
+      throw UnimplementedError('unsupported native stream active getter');
+    }
+    return true;
+  }
 
   @override
   Future<void> addTrack(
@@ -199,7 +219,9 @@ class FakeMediaStream extends MediaStream {
   Future<MediaStream> clone() async => FakeMediaStream('$id-clone');
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    disposeCount++;
+  }
 
   @override
   Future<void> getMediaTracks() async {}
@@ -257,8 +279,13 @@ class FakeMediaStreamTrack extends MediaStreamTrack {
 
   @override
   Future<void> stop() async {
+    if (owner != null) {
+      owner!.stopTrackCount++;
+    }
     onEnded?.call();
   }
+
+  FakeMediaStream? owner;
 }
 
 extension _FirstOrNull<T> on Iterable<T> {

@@ -116,8 +116,8 @@ class WebRtcMediaCaptureService
     bool captureAudio = false,
   }) async {
     await stopCapture();
+    final adapter = _screenCaptureAdapter();
     try {
-      final adapter = _screenCaptureAdapter();
       logScreenCapture(
         'adapter-selected',
         platform: adapter.platformLabel,
@@ -133,9 +133,22 @@ class WebRtcMediaCaptureService
       }
       _currentStream = stream;
       return stream;
-    } catch (error) {
+    } on StreamingException {
       await stopCapture();
-      throw normalizeStreamingException(error);
+      rethrow;
+    } catch (error, stackTrace) {
+      logScreenCapture(
+        'adapter-failed',
+        platform: adapter.platformLabel,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      await stopCapture();
+      throw StreamingException(
+        StreamingErrorCode.unknown,
+        '${adapter.platformLabel} 录屏失败，请查看诊断日志。',
+        cause: error,
+      );
     }
   }
 

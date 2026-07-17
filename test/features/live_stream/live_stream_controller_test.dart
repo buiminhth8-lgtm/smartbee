@@ -65,6 +65,7 @@ void main() {
     await controller.setSourceType(CaptureSourceType.screen);
     await controller.openPreview();
     expect(controller.state.status, StreamSessionStatus.idle);
+    expect(controller.state.errorMessage, isNull);
     controller.dispose();
   });
 
