@@ -147,9 +147,12 @@ class WhipPublisher implements StreamPublisher {
       if (error is StreamingException) {
         rethrow;
       }
+
+        print('媒体协商失败，请检查服务器 WHIP 配置和网络。'+error.toString());
+
       throw StreamingException(
         StreamingErrorCode.sdpNegotiationFailed,
-        '媒体协商失败，请检查服务器 WHIP 配置和网络。',
+        '媒体协商失败，请检查服务器 WHIP 配置和网络。'+error.toString(),
         cause: error,
       );
     }
