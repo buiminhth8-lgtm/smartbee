@@ -41,13 +41,13 @@ class WhipOfferRequestData {
     required this.uri,
     required this.headers,
     required this.bodyBytes,
-    required this.normalizedOfferSdp,
+    required this.offerSdp,
   });
 
   final Uri uri;
   final Map<String, String> headers;
   final List<int> bodyBytes;
-  final String normalizedOfferSdp;
+  final String offerSdp;
 }
 
 String safeBodyPreview(String value, {int maxLength = 200}) {
@@ -65,20 +65,6 @@ String safeBodyPreview(String value, {int maxLength = 200}) {
   }
 
   return '${normalized.substring(0, maxLength)}...';
-}
-
-String normalizeOfferSdp(String value) {
-  var result = value;
-  if (result.startsWith('\uFEFF')) {
-    result = result.substring(1);
-  }
-  result = result.trim();
-  final lines = result.split(RegExp(r'\r?\n'));
-  result = lines.join('\r\n');
-  if (!result.endsWith('\r\n')) {
-    result = '$result\r\n';
-  }
-  return result;
 }
 
 void validateOfferSdp(String sdp) {
@@ -142,9 +128,13 @@ String validateWhipOfferDescription(RTCSessionDescription? description) {
       '本地 Offer SDP 无效，无法开始 WHIP 推流。',
     );
   }
-  final normalized = normalizeOfferSdp(sdp);
-  validateOfferSdp(normalized);
-  return normalized;
+  validateOfferSdp(sdp);
+  return sdp;
+}
+
+List<int> buildWhipOfferBody(String localOfferSdp) {
+  validateOfferSdp(localOfferSdp);
+  return utf8.encode(localOfferSdp);
 }
 
 WhipOfferRequestData buildWhipOfferRequest({
@@ -152,13 +142,11 @@ WhipOfferRequestData buildWhipOfferRequest({
   required String offerSdp,
   String? bearerToken,
 }) {
-  final normalized = normalizeOfferSdp(offerSdp);
-  validateOfferSdp(normalized);
-  final bodyBytes = utf8.encode(normalized);
+  final bodyBytes = buildWhipOfferBody(offerSdp);
   final token = bearerToken?.trim() ?? '';
   return WhipOfferRequestData(
     uri: uri,
-    normalizedOfferSdp: normalized,
+    offerSdp: offerSdp,
     headers: <String, String>{
       'Content-Type': 'application/sdp',
       'Accept': 'application/sdp',
@@ -187,9 +175,9 @@ Future<http.Response> postWhipOffer({
     'uri=$whipUri '
     'contentType=${request.headers['Content-Type']} '
     'contentLength=${request.bodyBytes.length} '
-    'sdpLength=${request.normalizedOfferSdp.length} '
-    'startsWithV0=${request.normalizedOfferSdp.startsWith('v=0')} '
-    'containsVideo=${request.normalizedOfferSdp.contains('m=video')}',
+    'sdpLength=${request.offerSdp.length} '
+    'startsWithV0=${request.offerSdp.startsWith('v=0')} '
+    'containsVideo=${request.offerSdp.contains('m=video')}',
   );
 
   final response = await httpClient.post(
@@ -251,6 +239,126 @@ void logOfferSummary(String sdp) {
   }
 }
 
+class SdpTextFormat {
+  const SdpTextFormat({
+    required this.length,
+    required this.actualCrLfCount,
+    required this.actualLfCount,
+    required this.literalCrLfCount,
+    required this.literalLfCount,
+    required this.nullCharCount,
+    required this.startsWithQuote,
+    required this.endsWithQuote,
+    required this.endsWithCrLf,
+  });
+
+  final int length;
+  final int actualCrLfCount;
+  final int actualLfCount;
+  final int literalCrLfCount;
+  final int literalLfCount;
+  final int nullCharCount;
+  final bool startsWithQuote;
+  final bool endsWithQuote;
+  final bool endsWithCrLf;
+}
+
+SdpTextFormat inspectSdpTextFormat(String sdp) {
+  return SdpTextFormat(
+    length: sdp.length,
+    actualCrLfCount: RegExp('\r\n').allMatches(sdp).length,
+    actualLfCount: RegExp('\n').allMatches(sdp).length,
+    literalCrLfCount: RegExp(r'\\r\\n').allMatches(sdp).length,
+    literalLfCount: RegExp(r'\\n').allMatches(sdp).length,
+    nullCharCount: sdp.codeUnits.where((value) => value == 0).length,
+    startsWithQuote: sdp.startsWith('"'),
+    endsWithQuote: sdp.endsWith('"'),
+    endsWithCrLf: sdp.endsWith('\r\n'),
+  );
+}
+
+void logSdpTextFormat(String label, String sdp) {
+  final format = inspectSdpTextFormat(sdp);
+  debugPrint(
+    '[WHIP] step=sdp-text-format '
+    'label=$label '
+    'length=${format.length} '
+    'actualCrLfCount=${format.actualCrLfCount} '
+    'actualLfCount=${format.actualLfCount} '
+    'literalCrLfCount=${format.literalCrLfCount} '
+    'literalLfCount=${format.literalLfCount} '
+    'nullCharCount=${format.nullCharCount} '
+    'startsWithQuote=${format.startsWithQuote} '
+    'endsWithQuote=${format.endsWithQuote} '
+    'endsWithCrLf=${format.endsWithCrLf}',
+  );
+}
+
+class SdpStructureSummary {
+  const SdpStructureSummary({
+    required this.mediaLines,
+    required this.mids,
+    required this.bundleLines,
+    required this.directions,
+    required this.rtpMaps,
+  });
+
+  final List<String> mediaLines;
+  final List<String> mids;
+  final List<String> bundleLines;
+  final List<String> directions;
+  final List<String> rtpMaps;
+}
+
+SdpStructureSummary summarizeSdp(String sdp) {
+  final lines = sdp.split(RegExp(r'\r?\n'));
+
+  return SdpStructureSummary(
+    mediaLines: lines.where((line) => line.startsWith('m=')).toList(),
+    mids: lines.where((line) => line.startsWith('a=mid:')).toList(),
+    bundleLines: lines
+        .where((line) => line.startsWith('a=group:BUNDLE'))
+        .toList(),
+    directions: lines
+        .where(
+          (line) =>
+              line == 'a=sendonly' ||
+              line == 'a=sendrecv' ||
+              line == 'a=recvonly' ||
+              line == 'a=inactive',
+        )
+        .toList(),
+    rtpMaps: lines.where((line) => line.startsWith('a=rtpmap:')).toList(),
+  );
+}
+
+void logSdpStructure(String label, String sdp) {
+  final summary = summarizeSdp(sdp);
+
+  debugPrint(
+    '[WHIP] step=sdp-structure '
+    'label=$label '
+    'length=${sdp.length} '
+    'mediaLines=${summary.mediaLines} '
+    'mids=${summary.mids} '
+    'bundleLines=${summary.bundleLines} '
+    'directions=${summary.directions}',
+  );
+
+  for (final codec in summary.rtpMaps.take(20)) {
+    debugPrint('[WHIP] step=sdp-codec label=$label codec=$codec');
+  }
+}
+
+int simpleSdpFingerprint(String value) {
+  var hash = 17;
+  for (final unit in value.codeUnits) {
+    hash = 37 * hash + unit;
+    hash &= 0x7fffffff;
+  }
+  return hash;
+}
+
 String mapWhipHttpError(int statusCode, String responseBody) {
   final body = responseBody.trim();
   if (statusCode == 400 && body.contains('"error":"EOF"')) {
@@ -262,14 +370,32 @@ String mapWhipHttpError(int statusCode, String responseBody) {
   return 'WHIP 请求失败：HTTP $statusCode，${safeBodyPreview(body)}';
 }
 
+String decodeWhipAnswer(List<int> bodyBytes) {
+  late final String answerSdp;
+  try {
+    answerSdp = utf8.decode(bodyBytes, allowMalformed: false);
+  } on FormatException catch (error) {
+    throw StreamingException(
+      StreamingErrorCode.invalidAnswerSdp,
+      'MediaMTX 返回的 SDP Answer 不是有效 UTF-8：$error',
+      cause: error,
+    );
+  }
+
+  if (answerSdp.startsWith('\uFEFF')) {
+    return answerSdp.substring(1);
+  }
+  return answerSdp;
+}
+
 String validateWhipAnswerResponse(http.Response response) {
   final contentType = response.headers['content-type']?.toLowerCase();
-  final answerSdp = _normalizeSdp(response.body);
+  final responseText = utf8.decode(response.bodyBytes, allowMalformed: true);
 
   if (response.statusCode != 201 && response.statusCode != 200) {
     throw StreamingException(
       _httpErrorCode(response.statusCode),
-      mapWhipHttpError(response.statusCode, response.body),
+      mapWhipHttpError(response.statusCode, responseText),
     );
   }
 
@@ -278,18 +404,21 @@ String validateWhipAnswerResponse(http.Response response) {
       StreamingErrorCode.invalidAnswerSdp,
       'WHIP 返回的不是 application/sdp，请检查请求地址是否为 /流名称/whip。'
       '实际 Content-Type：${contentType ?? '<missing>'}，'
-      '响应：${safeBodyPreview(answerSdp)}',
+      '响应：${safeBodyPreview(responseText)}',
     );
   }
 
+  final answerSdp = decodeWhipAnswer(response.bodyBytes);
   _validateAnswerSdp(answerSdp);
   return answerSdp;
 }
 
 RTCSessionDescription buildWhipAnswerDescription(String answerSdp) {
-  final normalized = _normalizeSdp(answerSdp);
-  _validateAnswerSdp(normalized);
-  return RTCSessionDescription(normalized, 'answer');
+  final sdp = answerSdp.startsWith('\uFEFF')
+      ? answerSdp.substring(1)
+      : answerSdp;
+  _validateAnswerSdp(sdp);
+  return RTCSessionDescription(sdp, 'answer');
 }
 
 StreamingErrorCode _httpErrorCode(int statusCode) {
@@ -298,14 +427,6 @@ StreamingErrorCode _httpErrorCode(int statusCode) {
     409 => StreamingErrorCode.publishConflict,
     _ => StreamingErrorCode.whipHttpFailed,
   };
-}
-
-String _normalizeSdp(String value) {
-  var sdp = value.trim();
-  if (sdp.startsWith('\uFEFF')) {
-    sdp = sdp.substring(1).trim();
-  }
-  return sdp;
 }
 
 void _validateAnswerSdp(String answerSdp) {
@@ -325,6 +446,79 @@ void _validateAnswerSdp(String answerSdp) {
   }
 }
 
+class WhipNegotiationGuard {
+  bool _isStarting = false;
+  bool _isPublishing = false;
+  bool _remoteDescriptionApplied = false;
+  int _generation = 0;
+
+  bool get isStarting => _isStarting;
+  bool get isPublishing => _isPublishing;
+  bool get remoteDescriptionApplied => _remoteDescriptionApplied;
+  int get generation => _generation;
+
+  int begin() {
+    if (_isStarting) {
+      throw const StreamingException(
+        StreamingErrorCode.alreadyStarting,
+        'WHIP 推流正在启动。',
+      );
+    }
+    if (_isPublishing) {
+      throw const StreamingException(
+        StreamingErrorCode.alreadyPublishing,
+        'WHIP 推流已经启动。',
+      );
+    }
+
+    _isStarting = true;
+    _remoteDescriptionApplied = false;
+    return ++_generation;
+  }
+
+  void ensureCurrent(int generation) {
+    if (generation != _generation) {
+      throw const StreamingException(
+        StreamingErrorCode.operationCancelled,
+        '本次 WHIP 协商已失效。',
+      );
+    }
+  }
+
+  void ensureRemoteDescriptionCanBeApplied(int generation) {
+    ensureCurrent(generation);
+    if (_remoteDescriptionApplied) {
+      throw const StreamingException(
+        StreamingErrorCode.invalidPeerConnectionState,
+        '当前连接已经应用过远端 Answer。',
+      );
+    }
+  }
+
+  void markRemoteDescriptionApplied(int generation) {
+    ensureRemoteDescriptionCanBeApplied(generation);
+    _remoteDescriptionApplied = true;
+  }
+
+  void markPublishing(int generation) {
+    ensureCurrent(generation);
+    _isPublishing = true;
+  }
+
+  void finishStarting(int generation) {
+    if (generation == _generation) {
+      _isStarting = false;
+    }
+  }
+
+  void reset() {
+    _generation++;
+    _isStarting = false;
+    _isPublishing = false;
+    _remoteDescriptionApplied = false;
+  }
+}
+
 class WhipPublisher implements StreamPublisher {
   WhipPublisher({http.Client? client, StreamUrlBuilder? urlBuilder})
     : _client = client ?? http.Client(),
@@ -337,12 +531,12 @@ class WhipPublisher implements StreamPublisher {
       StreamController<StreamPublisherEvent>.broadcast();
   final StreamController<StreamStatistics> _statistics =
       StreamController<StreamStatistics>.broadcast();
+  final WhipNegotiationGuard _negotiation = WhipNegotiationGuard();
 
   RTCPeerConnection? _peerConnection;
   Uri? _sessionUri;
   Timer? _statsTimer;
   DateTime? _startedAt;
-  bool _isPublishing = false;
   int _previousVideoBytes = 0;
   int _previousAudioBytes = 0;
   DateTime? _previousStatsAt;
@@ -354,7 +548,7 @@ class WhipPublisher implements StreamPublisher {
   Stream<StreamStatistics> get statistics => _statistics.stream;
 
   @override
-  bool get isPublishing => _isPublishing;
+  bool get isPublishing => _negotiation.isPublishing;
 
   @override
   Future<void> start({
@@ -362,9 +556,7 @@ class WhipPublisher implements StreamPublisher {
     required StreamServerConfig config,
     required StreamProfile profile,
   }) async {
-    if (_isPublishing) {
-      return;
-    }
+    final generation = _negotiation.begin();
 
     _events.add(
       const StreamPublisherEvent(StreamPublisherEventType.connecting),
@@ -374,11 +566,22 @@ class WhipPublisher implements StreamPublisher {
         'sdpSemantics': 'unified-plan',
         'iceServers': const <Map<String, Object>>[],
       });
+      final peerConnectionId = identityHashCode(peerConnection);
       _peerConnection = peerConnection;
       _wirePeerConnectionEvents(peerConnection);
+      _logWhip('peer-created', fields: {'pcId': peerConnectionId});
 
       for (final track in stream.getTracks()) {
         final sender = await peerConnection.addTrack(track, stream);
+        _logWhip(
+          'add-track',
+          fields: {
+            'pcId': peerConnectionId,
+            'kind': track.kind,
+            'trackId': track.id,
+            'enabled': track.enabled,
+          },
+        );
         if (track.kind == 'video') {
           await _configureVideoSender(sender, profile);
         }
@@ -388,54 +591,94 @@ class WhipPublisher implements StreamPublisher {
         'offerToReceiveAudio': false,
         'offerToReceiveVideo': false,
       });
-      offer.sdp = _preferH264(offer.sdp ?? '');
       _logWhip(
         'offer-created',
-        fields: {'type': offer.type, 'sdpLength': offer.sdp?.length ?? 0},
+        fields: {
+          'pcId': peerConnectionId,
+          'type': offer.type,
+          'sdpLength': offer.sdp?.length ?? 0,
+        },
       );
       await peerConnection.setLocalDescription(offer);
-      _logWhip('local-description-set');
+      _logWhip('local-description-set', fields: {'pcId': peerConnectionId});
       await _waitForIceGathering(peerConnection);
       _logWhip(
         'ice-gathering-complete',
-        fields: {'state': _enumName(peerConnection.iceGatheringState)},
+        fields: {
+          'pcId': peerConnectionId,
+          'state': _enumName(peerConnection.iceGatheringState),
+        },
       );
 
       final localDescription = await peerConnection.getLocalDescription();
       final offerSdp = validateWhipOfferDescription(localDescription);
+      final localSdpFingerprint = simpleSdpFingerprint(localDescription!.sdp!);
+      final sentSdpFingerprint = simpleSdpFingerprint(offerSdp);
       _logWhip(
         'local-description-ready',
-        fields: {'type': localDescription?.type, 'sdpLength': offerSdp.length},
+        fields: {
+          'pcId': peerConnectionId,
+          'type': localDescription.type,
+          'sdpLength': offerSdp.length,
+        },
+      );
+      _logWhip(
+        'offer-fingerprint',
+        fields: {
+          'pcId': peerConnectionId,
+          'local': localSdpFingerprint,
+          'sent': sentSdpFingerprint,
+          'matches': localSdpFingerprint == sentSdpFingerprint,
+        },
       );
       logOfferSummary(offerSdp);
+      logSdpTextFormat('local-offer', offerSdp);
+      logSdpStructure('local-offer', offerSdp);
 
       final whipUri = Uri.parse(_urlBuilder.build(config).whip);
+      _negotiation.ensureCurrent(generation);
+      _logWhip(
+        'whip-request',
+        fields: {
+          'pcId': peerConnectionId,
+          'uri': whipUri,
+          'offerFingerprint': sentSdpFingerprint,
+        },
+      );
       final response = await _postOffer(whipUri, config, offerSdp);
       _logWhip(
         'response-received',
         fields: {
+          'pcId': peerConnectionId,
           'status': response.statusCode,
           'contentType': response.headers['content-type'],
           'location': response.headers['location'],
-          'bodyLength': response.body.length,
+          'bodyLength': response.bodyBytes.length,
         },
       );
 
+      _negotiation.ensureCurrent(generation);
       final answerSdp = validateWhipAnswerResponse(response);
       _logWhip(
         'answer-validation',
         fields: {
+          'pcId': peerConnectionId,
           'startsWithV0': answerSdp.startsWith('v=0'),
           'containsVideo': answerSdp.contains('m=video'),
           'answerLength': answerSdp.length,
           'preview': safeBodyPreview(answerSdp),
         },
       );
+      logSdpTextFormat('remote-answer', answerSdp);
+      logSdpStructure('remote-answer', answerSdp);
 
       final remoteDescription = buildWhipAnswerDescription(answerSdp);
+      await _verifyReadyForRemoteDescription(peerConnection, peerConnectionId);
+      _negotiation.ensureRemoteDescriptionCanBeApplied(generation);
       _logWhip(
         'setRemoteDescription-start',
         fields: {
+          'pcId': peerConnectionId,
           'type': remoteDescription.type,
           'sdpLength': remoteDescription.sdp?.length ?? 0,
           'startsWithV0': answerSdp.startsWith('v=0'),
@@ -444,11 +687,18 @@ class WhipPublisher implements StreamPublisher {
       try {
         await peerConnection.setRemoteDescription(remoteDescription);
       } catch (error, stackTrace) {
+        final signalingState = await peerConnection.getSignalingState();
+        final currentLocalDescription = await peerConnection
+            .getLocalDescription();
         _logWhip(
           'setRemoteDescription-failed',
           error: error,
           stackTrace: stackTrace,
           fields: {
+            'pcId': peerConnectionId,
+            'signalingState': _enumName(signalingState),
+            'localType': currentLocalDescription?.type,
+            'localSdpLength': currentLocalDescription?.sdp?.length ?? 0,
             'remoteType': remoteDescription.type,
             'answerLength': answerSdp.length,
             'startsWithV0': answerSdp.startsWith('v=0'),
@@ -460,23 +710,31 @@ class WhipPublisher implements StreamPublisher {
           cause: error,
         );
       }
-      _logWhip('setRemoteDescription-success');
+      _negotiation.markRemoteDescriptionApplied(generation);
+      _logWhip(
+        'setRemoteDescription-success',
+        fields: {'pcId': peerConnectionId},
+      );
 
       final location = response.headers['location'];
       if (location != null && location.trim().isNotEmpty) {
         _sessionUri = whipUri.resolve(location.trim());
       }
 
+      _negotiation.ensureCurrent(generation);
       await _waitForIceConnected(peerConnection);
       _wirePeerConnectionEvents(peerConnection);
       _logWhip(
         'ice-connected',
-        fields: {'state': _enumName(peerConnection.iceConnectionState)},
+        fields: {
+          'pcId': peerConnectionId,
+          'state': _enumName(peerConnection.iceConnectionState),
+        },
       );
-      _isPublishing = true;
+      _negotiation.markPublishing(generation);
       _startedAt = DateTime.now();
       _startStatisticsTimer(profile);
-      _logWhip('publishing');
+      _logWhip('publishing', fields: {'pcId': peerConnectionId});
       _events.add(
         const StreamPublisherEvent(StreamPublisherEventType.publishing),
       );
@@ -499,6 +757,8 @@ class WhipPublisher implements StreamPublisher {
         '媒体协商失败，请检查服务器 WHIP 配置和网络。',
         cause: error,
       );
+    } finally {
+      _negotiation.finishStarting(generation);
     }
   }
 
@@ -513,6 +773,52 @@ class WhipPublisher implements StreamPublisher {
       offerSdp: offerSdp,
       bearerToken: config.bearerToken,
     ).timeout(const Duration(seconds: 12));
+  }
+
+  Future<void> _verifyReadyForRemoteDescription(
+    RTCPeerConnection peerConnection,
+    int peerConnectionId,
+  ) async {
+    final signalingState = await peerConnection.getSignalingState();
+    final currentLocalDescription = await peerConnection.getLocalDescription();
+    final currentRemoteDescription = await peerConnection
+        .getRemoteDescription();
+
+    _logWhip(
+      'before-setRemoteDescription',
+      fields: {
+        'pcId': peerConnectionId,
+        'signalingState': _enumName(signalingState),
+        'localType': currentLocalDescription?.type,
+        'localSdpLength': currentLocalDescription?.sdp?.length ?? 0,
+        'hasRemoteDescription': currentRemoteDescription != null,
+        'remoteType': currentRemoteDescription?.type,
+      },
+    );
+
+    if (signalingState != RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
+      throw StreamingException(
+        StreamingErrorCode.invalidPeerConnectionState,
+        '设置 SDP Answer 前 PeerConnection 状态错误：'
+        '${_enumName(signalingState)}，预期 have-local-offer。',
+      );
+    }
+
+    if (currentLocalDescription?.type?.toLowerCase() != 'offer' ||
+        currentLocalDescription?.sdp == null ||
+        currentLocalDescription!.sdp!.isEmpty) {
+      throw const StreamingException(
+        StreamingErrorCode.invalidPeerConnectionState,
+        '设置 SDP Answer 前 LocalDescription 无效。',
+      );
+    }
+
+    if (currentRemoteDescription != null) {
+      throw const StreamingException(
+        StreamingErrorCode.invalidPeerConnectionState,
+        '设置 SDP Answer 前已经存在 RemoteDescription。',
+      );
+    }
   }
 
   Future<void> _configureVideoSender(
@@ -607,7 +913,18 @@ class WhipPublisher implements StreamPublisher {
   }
 
   void _wirePeerConnectionEvents(RTCPeerConnection peerConnection) {
+    final peerConnectionId = identityHashCode(peerConnection);
+    peerConnection.onSignalingState = (state) {
+      _logWhip(
+        'signaling-state',
+        fields: {'pcId': peerConnectionId, 'state': _enumName(state)},
+      );
+    };
     peerConnection.onConnectionState = (state) {
+      _logWhip(
+        'peer-connection-state',
+        fields: {'pcId': peerConnectionId, 'state': _enumName(state)},
+      );
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         _events.add(
           const StreamPublisherEvent(
@@ -626,6 +943,10 @@ class WhipPublisher implements StreamPublisher {
       }
     };
     peerConnection.onIceConnectionState = (state) {
+      _logWhip(
+        'ice-connection-state',
+        fields: {'pcId': peerConnectionId, 'state': _enumName(state)},
+      );
       if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
         _events.add(
           const StreamPublisherEvent(
@@ -799,37 +1120,11 @@ class WhipPublisher implements StreamPublisher {
     return '$value'.split('.').last;
   }
 
-  String _preferH264(String sdp) {
-    final lines = sdp.split('\r\n');
-    final h264Payloads = <String>[];
-    for (final line in lines) {
-      final lower = line.toLowerCase();
-      if (lower.startsWith('a=rtpmap:') && lower.contains('h264/')) {
-        h264Payloads.add(line.substring(9).split(' ').first);
-      }
-    }
-    if (h264Payloads.isEmpty) {
-      return sdp;
-    }
-    return lines
-        .map((line) {
-          if (!line.startsWith('m=video ')) {
-            return line;
-          }
-          final parts = line.split(' ');
-          final header = parts.take(3);
-          final payloads = parts.skip(3).toList();
-          final ordered = [
-            ...h264Payloads.where(payloads.contains),
-            ...payloads.where((payload) => !h264Payloads.contains(payload)),
-          ];
-          return [...header, ...ordered].join(' ');
-        })
-        .join('\r\n');
-  }
-
   @override
   Future<void> stop() async {
+    final wasPublishing = _negotiation.isPublishing;
+    _negotiation.reset();
+
     _statsTimer?.cancel();
     _statsTimer = null;
 
@@ -853,10 +1148,9 @@ class WhipPublisher implements StreamPublisher {
       await peerConnection.dispose();
     }
 
-    if (_isPublishing) {
+    if (wasPublishing) {
       _events.add(const StreamPublisherEvent(StreamPublisherEventType.stopped));
     }
-    _isPublishing = false;
     _startedAt = null;
   }
 }
