@@ -29,21 +29,28 @@ class _MapPageState extends State<MapPage> {
     _mapTileNetwork = _createMapTileNetwork();
     debugPrint(
       '[MapTile] step=page-init '
-      'proxy=${_mapTileNetwork.proxyDescription}',
+      'proxy=${_mapTileNetwork.proxyDescription} '
+      'tileSource=${_mapTileNetwork.tileSourceDescription}',
     );
   }
 
   MapTileHttpClientBundle _createMapTileNetwork() {
     try {
-      return MapTileHttpClientFactory.create();
+      return MapTileHttpClientFactory.create(
+        onNetworkError: _handleMapNetworkError,
+      );
     } on ArgumentError catch (error) {
       debugPrint(
-        '[MapTile] step=explicit-proxy-invalid '
+        '[MapTile] step=map-network-config-invalid '
         'errorType=${error.runtimeType} '
         'error=$error',
       );
-      _mapTileErrorMessage = '地图代理配置无效，已回退到环境变量或直连。';
-      return MapTileHttpClientFactory.create(explicitProxy: '');
+      _mapTileErrorMessage = '地图网络配置无效，已回退到默认瓦片源和直连。';
+      return MapTileHttpClientFactory.create(
+        explicitProxy: '',
+        explicitTileUrlTemplate: defaultMapTileUrlTemplate,
+        onNetworkError: _handleMapNetworkError,
+      );
     }
   }
 
@@ -61,6 +68,15 @@ class _MapPageState extends State<MapPage> {
 
   void _handleTileError(TileImage tile, Object error, StackTrace? stackTrace) {
     _tileErrorLogger.log(error, tile: tile.coordinates);
+    _showMapTileErrorMessage();
+  }
+
+  void _handleMapNetworkError(Uri uri, Object error, StackTrace stackTrace) {
+    _tileErrorLogger.log(error, tile: uri);
+    _showMapTileErrorMessage();
+  }
+
+  void _showMapTileErrorMessage() {
     if (!mounted || _mapTileErrorMessage != null) {
       return;
     }
@@ -100,7 +116,7 @@ class _MapPageState extends State<MapPage> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: _mapTileNetwork.tileUrlTemplate,
                 tileProvider: _mapTileNetwork.tileProvider,
 
                 userAgentPackageName: 'com.example.smartbee',
@@ -168,7 +184,7 @@ class _MapPageState extends State<MapPage> {
                   child: Text(
                     '$_mapTileErrorMessage\n'
                     '代理模式：${_mapTileNetwork.proxyDescription}\n'
-                    '地图源：OpenStreetMap',
+                    '地图源：${_mapTileNetwork.tileSourceDescription}',
                   ),
                 ),
               ),

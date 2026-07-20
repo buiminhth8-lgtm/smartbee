@@ -75,6 +75,38 @@ flutter run -d android
 
 OpenStreetMap 公共瓦片服务不适合高流量生产环境。生产环境应确认瓦片服务政策，或使用自建/商业瓦片服务。
 
+### Windows 地图瓦片网络诊断
+
+Windows 浏览器可访问 OSM 瓦片，并不代表 Flutter/Dart 原生网络栈也会自动走同一条代理或 PAC 路径。地图模块为瓦片请求单独创建 `HttpClient`，不会设置全局 `HttpOverrides.global`，也不会影响 WHIP 访问 `http://127.0.0.1:8889/smartbee/whip`。
+
+可用配置：
+
+```powershell
+flutter run -d windows `
+  --dart-define=MAP_HTTP_PROXY=127.0.0.1:7890
+```
+
+也可以显式切换地图瓦片源或协议：
+
+```powershell
+flutter run -d windows `
+  --dart-define=MAP_TILE_URL_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png
+```
+
+未设置 `MAP_HTTP_PROXY` 时，地图专用 client 会读取进程环境变量 `HTTPS_PROXY`、`HTTP_PROXY` 和 `NO_PROXY`。Dart `HttpClient` 的 `findProxy` 只支持 HTTP CONNECT 代理格式 `host:port` 或 `http://host:port`；不要填写 SOCKS/PAC 地址。若浏览器依赖 SOCKS/PAC，请改用可提供 HTTP 代理端口的本地代理，或配置可直连的瓦片源。
+
+网络探针：
+
+```powershell
+dart run tool/osm_network_probe.dart
+
+dart run "-DMAP_HTTP_PROXY=127.0.0.1:7890" tool/osm_network_probe.dart
+
+dart run "-DMAP_TILE_URL_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png" tool/osm_network_probe.dart
+```
+
+探针成功时应看到 `status=200` 且 `bytes>0`。如果无代理时超时、配置 HTTP 代理后成功，说明浏览器使用了代理网络路径，而 Dart 原生直连路径不可达。
+
 ## 实时推流功能
 
 页面入口：底部导航或桌面宽屏 `NavigationRail` 中的“实时推流”。

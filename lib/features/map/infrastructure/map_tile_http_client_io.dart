@@ -10,11 +10,14 @@ import 'map_tile_http_client_common.dart';
 class MapTileHttpClientFactory {
   const MapTileHttpClientFactory._();
 
-  static final Uri _diagnosticTileUri = Uri.parse(
-    'https://tile.openstreetmap.org/12/3373/1553.png',
-  );
-
-  static MapTileHttpClientBundle create({String? explicitProxy}) {
+  static MapTileHttpClientBundle create({
+    String? explicitProxy,
+    String? explicitTileUrlTemplate,
+    MapTileNetworkErrorCallback? onNetworkError,
+  }) {
+    final tileSource = resolveMapTileSourceConfig(
+      explicitUrlTemplate: explicitTileUrlTemplate,
+    );
     final configuredProxy =
         (explicitProxy ?? const String.fromEnvironment('MAP_HTTP_PROXY'))
             .trim();
@@ -27,9 +30,9 @@ class MapTileHttpClientFactory {
     late final String proxyDescription;
 
     if (configuredProxy.isNotEmpty) {
-      final normalizedProxy = normalizeMapProxy(configuredProxy);
-      nativeClient.findProxy = (_) => 'PROXY $normalizedProxy';
-      proxyDescription = 'explicit:$normalizedProxy';
+      final normalizedProxy = normalizeMapProxyConfig(configuredProxy);
+      nativeClient.findProxy = (_) => normalizedProxy.rule;
+      proxyDescription = 'explicit:${normalizedProxy.description}';
     } else {
       nativeClient.findProxy = (uri) {
         try {
@@ -43,7 +46,7 @@ class MapTileHttpClientFactory {
           return 'DIRECT';
         }
       };
-      proxyDescription = _describeEnvironmentProxy();
+      proxyDescription = _describeEnvironmentProxy(tileSource.probeUri);
     }
 
     final ioClient = IOClient(nativeClient);
@@ -62,14 +65,24 @@ class MapTileHttpClientFactory {
         );
       },
     );
+    final reportingClient = MapTileReportingClient(
+      inner: retryClient,
+      onNetworkError: onNetworkError,
+    );
 
     // This client is intentionally scoped to map tiles only.
     // Do not reuse it for WHIP or localhost MediaMTX requests.
-    final tileProvider = NetworkTileProvider(httpClient: retryClient);
+    final tileProvider = NetworkTileProvider(
+      httpClient: reportingClient,
+      silenceExceptions: true,
+      attemptDecodeOfHttpErrorResponses: false,
+    );
 
     debugPrint(
       '[MapTile] step=http-client-created '
       'proxy=$proxyDescription '
+      'tileSource=${tileSource.description} '
+      'tileProbeUri=${tileSource.probeUri} '
       'connectionTimeoutSeconds=12 '
       'idleTimeoutSeconds=30 '
       'maxConnectionsPerHost=6 '
@@ -77,15 +90,17 @@ class MapTileHttpClientFactory {
     );
 
     return MapTileHttpClientBundle(
-      httpClient: retryClient,
+      httpClient: reportingClient,
       tileProvider: tileProvider,
       proxyDescription: proxyDescription,
+      tileUrlTemplate: tileSource.urlTemplate,
+      tileSourceDescription: tileSource.description,
     );
   }
 
-  static String _describeEnvironmentProxy() {
+  static String _describeEnvironmentProxy(Uri diagnosticUri) {
     try {
-      return describeMapProxyForUri(_diagnosticTileUri, Platform.environment);
+      return describeMapProxyForUri(diagnosticUri, Platform.environment);
     } catch (error) {
       debugPrint(
         '[MapTile] step=environment-proxy-description-failed '

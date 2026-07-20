@@ -8,7 +8,14 @@ import 'map_tile_http_client_common.dart';
 class MapTileHttpClientFactory {
   const MapTileHttpClientFactory._();
 
-  static MapTileHttpClientBundle create({String? explicitProxy}) {
+  static MapTileHttpClientBundle create({
+    String? explicitProxy,
+    String? explicitTileUrlTemplate,
+    MapTileNetworkErrorCallback? onNetworkError,
+  }) {
+    final tileSource = resolveMapTileSourceConfig(
+      explicitUrlTemplate: explicitTileUrlTemplate,
+    );
     final configuredProxy =
         (explicitProxy ?? const String.fromEnvironment('MAP_HTTP_PROXY'))
             .trim();
@@ -31,18 +38,30 @@ class MapTileHttpClientFactory {
       whenError: (_, _) => false,
     );
 
-    final tileProvider = NetworkTileProvider(httpClient: retryClient);
+    final reportingClient = MapTileReportingClient(
+      inner: retryClient,
+      onNetworkError: onNetworkError,
+    );
+
+    final tileProvider = NetworkTileProvider(
+      httpClient: reportingClient,
+      silenceExceptions: true,
+      attemptDecodeOfHttpErrorResponses: false,
+    );
 
     debugPrint(
       '[MapTile] step=http-client-created '
       'proxy=$proxyDescription '
+      'tileSource=${tileSource.description} '
       'retries=1',
     );
 
     return MapTileHttpClientBundle(
-      httpClient: retryClient,
+      httpClient: reportingClient,
       tileProvider: tileProvider,
       proxyDescription: proxyDescription,
+      tileUrlTemplate: tileSource.urlTemplate,
+      tileSourceDescription: tileSource.description,
     );
   }
 }

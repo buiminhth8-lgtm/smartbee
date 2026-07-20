@@ -2,29 +2,38 @@
 
 import 'dart:io';
 
+import 'package:smartbee/features/map/infrastructure/map_tile_network_config.dart';
+
 Future<void> main() async {
   const proxy = String.fromEnvironment('MAP_HTTP_PROXY');
-  final uri = Uri.parse('https://tile.openstreetmap.org/12/3373/1553.png');
+  const tileUrlTemplate = String.fromEnvironment('MAP_TILE_URL_TEMPLATE');
+
+  final tileSource = resolveMapTileSourceConfig(
+    explicitUrlTemplate: tileUrlTemplate,
+  );
+  final uri = tileSource.probeUri;
 
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
 
   late final String resolvedProxy;
   if (proxy.trim().isNotEmpty) {
-    final normalizedProxy = _normalizeProxy(proxy);
-    resolvedProxy = 'PROXY $normalizedProxy';
+    resolvedProxy = normalizeMapProxyConfig(proxy).rule;
     client.findProxy = (_) => resolvedProxy;
   } else {
-    resolvedProxy = _resolveProxyFromEnvironment(uri, Platform.environment);
+    resolvedProxy = resolveMapProxyForUri(uri, Platform.environment);
     client.findProxy = (requestUri) {
-      return _resolveProxyFromEnvironment(requestUri, Platform.environment);
+      return resolveMapProxyForUri(requestUri, Platform.environment);
     };
   }
 
   print('MAP_HTTP_PROXY=$proxy');
-  print('HTTP_PROXY=${Platform.environment['HTTP_PROXY']}');
-  print('HTTPS_PROXY=${Platform.environment['HTTPS_PROXY']}');
+  print('MAP_TILE_URL_TEMPLATE=$tileUrlTemplate');
+  print('tileUrlTemplate=${tileSource.urlTemplate}');
+  print('probeUri=$uri');
+  print('HTTP_PROXY=${_redactProxy(Platform.environment['HTTP_PROXY'])}');
+  print('HTTPS_PROXY=${_redactProxy(Platform.environment['HTTPS_PROXY'])}');
   print('NO_PROXY=${Platform.environment['NO_PROXY']}');
-  print('resolvedProxy=$resolvedProxy');
+  print('resolvedProxy=${_redactProxyRule(resolvedProxy)}');
 
   final stopwatch = Stopwatch()..start();
 
@@ -56,94 +65,26 @@ Future<void> main() async {
   }
 }
 
-String _resolveProxyFromEnvironment(Uri uri, Map<String, String> environment) {
-  if (_matchesNoProxy(uri.host, environment)) {
-    return 'DIRECT';
+String? _redactProxy(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return value;
   }
 
-  final proxyValue =
-      environment['HTTPS_PROXY'] ??
-      environment['https_proxy'] ??
-      environment['HTTP_PROXY'] ??
-      environment['http_proxy'];
-
-  if (proxyValue == null || proxyValue.trim().isEmpty) {
-    return 'DIRECT';
+  try {
+    return normalizeMapProxyConfig(value).description;
+  } on ArgumentError {
+    return '<invalid-or-unsupported>';
   }
-
-  return 'PROXY ${_normalizeProxy(proxyValue)}';
 }
 
-String _normalizeProxy(String value) {
-  var result = value.trim();
-
-  if (result.startsWith('http://')) {
-    result = result.substring('http://'.length);
+String _redactProxyRule(String value) {
+  if (value == 'DIRECT') {
+    return value;
   }
 
-  if (result.startsWith('https://')) {
-    result = result.substring('https://'.length);
+  if (!value.startsWith('PROXY ')) {
+    return '<invalid-or-unsupported>';
   }
 
-  if (result.endsWith('/')) {
-    result = result.substring(0, result.length - 1);
-  }
-
-  final uri = Uri.tryParse('http://$result');
-  if (uri == null ||
-      uri.host.isEmpty ||
-      !uri.hasPort ||
-      uri.port < 1 ||
-      uri.port > 65535) {
-    throw ArgumentError.value(
-      value,
-      'MAP_HTTP_PROXY',
-      '代理格式应为 host:port，例如 127.0.0.1:7890。',
-    );
-  }
-
-  return '${uri.host}:${uri.port}';
-}
-
-bool _matchesNoProxy(String host, Map<String, String> environment) {
-  final noProxy = environment['NO_PROXY'] ?? environment['no_proxy'];
-  if (noProxy == null || noProxy.trim().isEmpty) {
-    return false;
-  }
-
-  final normalizedHost = _stripHostPort(host).toLowerCase();
-  for (final rawEntry in noProxy.split(',')) {
-    var entry = _stripHostPort(rawEntry.trim()).toLowerCase();
-    if (entry.isEmpty) {
-      continue;
-    }
-    if (entry == '*') {
-      return true;
-    }
-    if (entry.startsWith('.')) {
-      entry = entry.substring(1);
-      if (normalizedHost == entry || normalizedHost.endsWith('.$entry')) {
-        return true;
-      }
-      continue;
-    }
-    if (normalizedHost == entry || normalizedHost.endsWith('.$entry')) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-String _stripHostPort(String value) {
-  var result = value.trim();
-  if (result.startsWith('[') && result.contains(']')) {
-    return result.substring(1, result.indexOf(']'));
-  }
-
-  final colonCount = ':'.allMatches(result).length;
-  if (colonCount == 1) {
-    result = result.substring(0, result.indexOf(':'));
-  }
-  return result;
+  return 'PROXY ${_redactProxy(value.substring('PROXY '.length))}';
 }
