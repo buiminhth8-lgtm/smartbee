@@ -1,14 +1,31 @@
 services:
   mediamtx:
-    image: bluenviron/mediamtx:1.18.2
+    image: bluenviron/mediamtx:1.19.2
+    container_name: mediamtx
     restart: unless-stopped
+
     ports:
-      - "8554:8554"
-      - "1935:1935"
-      - "8888:8888"
-      - "8889:8889"
-      - "9997:9997"
-      - "9998:9998"
+      # RTSP，建议优先使用 TCP
+      - "8554:8554/tcp"
+
+      # RTMP
+      - "1935:1935/tcp"
+
+      # HLS
+      - "8888:8888/tcp"
+
+      # WebRTC HTTP、WHIP、WHEP
+      - "8889:8889/tcp"
+
+      # WebRTC ICE 媒体端口
       - "8189:8189/udp"
+
+      # SRT
+      - "8890:8890/udp"
+
+      # 只有需要 RTSP UDP 时才保留
+      - "8000:8000/udp"
+      - "8001:8001/udp"
+
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
