@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'infrastructure/map_tile_http_client.dart';
+
 class MapPage extends StatefulWidget {
   const MapPage({super.key});
 
@@ -14,9 +16,36 @@ class _MapPageState extends State<MapPage> {
   static const double _maxZoom = 19;
 
   final MapController _mapController = MapController();
+  final MapTileErrorLogger _tileErrorLogger = MapTileErrorLogger();
+  late final MapTileHttpClientBundle _mapTileNetwork;
+  String? _mapTileErrorMessage;
 
   // 示例位置，可替换为你的业务坐标。
   LatLng _markerPosition = const LatLng(39.9042, 116.4074);
+
+  @override
+  void initState() {
+    super.initState();
+    _mapTileNetwork = _createMapTileNetwork();
+    debugPrint(
+      '[MapTile] step=page-init '
+      'proxy=${_mapTileNetwork.proxyDescription}',
+    );
+  }
+
+  MapTileHttpClientBundle _createMapTileNetwork() {
+    try {
+      return MapTileHttpClientFactory.create();
+    } on ArgumentError catch (error) {
+      debugPrint(
+        '[MapTile] step=explicit-proxy-invalid '
+        'errorType=${error.runtimeType} '
+        'error=$error',
+      );
+      _mapTileErrorMessage = '地图代理配置无效，已回退到环境变量或直连。';
+      return MapTileHttpClientFactory.create(explicitProxy: '');
+    }
+  }
 
   void _changeZoom(double delta) {
     final camera = _mapController.camera;
@@ -28,6 +57,24 @@ class _MapPageState extends State<MapPage> {
 
   void _resetMap() {
     _mapController.move(_markerPosition, 12);
+  }
+
+  void _handleTileError(TileImage tile, Object error, StackTrace? stackTrace) {
+    _tileErrorLogger.log(error, tile: tile.coordinates);
+    if (!mounted || _mapTileErrorMessage != null) {
+      return;
+    }
+
+    setState(() {
+      _mapTileErrorMessage = '地图瓦片加载失败，请检查网络或地图代理配置。';
+    });
+  }
+
+  @override
+  void dispose() {
+    debugPrint('[MapTile] step=page-dispose');
+    _mapTileNetwork.close();
+    super.dispose();
   }
 
   @override
@@ -54,12 +101,13 @@ class _MapPageState extends State<MapPage> {
             children: [
               TileLayer(
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                tileProvider: _mapTileNetwork.tileProvider,
 
-                // 必须替换为你的真实 Android applicationId。
-                // 同时用于向地图瓦片服务器标识应用。
                 userAgentPackageName: 'com.example.smartbee',
 
                 maxNativeZoom: 19,
+                panBuffer: 0,
+                errorTileCallback: _handleTileError,
               ),
 
               MarkerLayer(
@@ -104,6 +152,27 @@ class _MapPageState extends State<MapPage> {
               ),
             ),
           ),
+
+          if (_mapTileErrorMessage != null)
+            Positioned(
+              left: 16,
+              bottom: 24,
+              right: 96,
+              child: Card(
+                color: Theme.of(context).colorScheme.surface,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Text(
+                    '$_mapTileErrorMessage\n'
+                    '代理模式：${_mapTileNetwork.proxyDescription}\n'
+                    '地图源：OpenStreetMap',
+                  ),
+                ),
+              ),
+            ),
 
           // 右侧地图控制按钮，方便桌面端使用。
           Positioned(
