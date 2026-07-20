@@ -446,6 +446,68 @@ void _validateAnswerSdp(String answerSdp) {
   }
 }
 
+class RemoteDescriptionReadiness {
+  const RemoteDescriptionReadiness({
+    required this.peerConnectionMatches,
+    required this.remoteDescriptionApplied,
+    required this.signalingStateIsHaveLocalOffer,
+    required this.hasLocalDescription,
+    required this.localTypeIsOffer,
+    required this.hasLocalSdp,
+  });
+
+  final bool peerConnectionMatches;
+  final bool remoteDescriptionApplied;
+  final bool signalingStateIsHaveLocalOffer;
+  final bool hasLocalDescription;
+  final bool localTypeIsOffer;
+  final bool hasLocalSdp;
+}
+
+void validateRemoteDescriptionReadiness(RemoteDescriptionReadiness readiness) {
+  if (!readiness.peerConnectionMatches) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidPeerConnectionState,
+      'WHIP 协商过程中 PeerConnection 实例发生变化。',
+    );
+  }
+
+  if (readiness.remoteDescriptionApplied) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidPeerConnectionState,
+      '当前 PeerConnection 已经成功设置过远端 Answer。',
+    );
+  }
+
+  if (!readiness.hasLocalDescription) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      '设置远端 Answer 前 LocalDescription 不存在。',
+    );
+  }
+
+  if (!readiness.localTypeIsOffer) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      '设置远端 Answer 前 LocalDescription 类型不是 offer。',
+    );
+  }
+
+  if (!readiness.hasLocalSdp) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      '设置远端 Answer 前 Local Offer SDP 为空。',
+    );
+  }
+
+  if (!readiness.signalingStateIsHaveLocalOffer) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidPeerConnectionState,
+      '设置远端 Answer 前 SignalingState 不是 have-local-offer。',
+    );
+  }
+}
+
 class WhipNegotiationGuard {
   bool _isStarting = false;
   bool _isPublishing = false;
@@ -656,6 +718,7 @@ class WhipPublisher implements StreamPublisher {
           'bodyLength': response.bodyBytes.length,
         },
       );
+      _saveWhipSessionUri(whipUri, response);
 
       _negotiation.ensureCurrent(generation);
       final answerSdp = validateWhipAnswerResponse(response);
@@ -713,13 +776,11 @@ class WhipPublisher implements StreamPublisher {
       _negotiation.markRemoteDescriptionApplied(generation);
       _logWhip(
         'setRemoteDescription-success',
-        fields: {'pcId': peerConnectionId},
+        fields: {
+          'pcId': peerConnectionId,
+          'remoteDescriptionApplied': _negotiation.remoteDescriptionApplied,
+        },
       );
-
-      final location = response.headers['location'];
-      if (location != null && location.trim().isNotEmpty) {
-        _sessionUri = whipUri.resolve(location.trim());
-      }
 
       _negotiation.ensureCurrent(generation);
       await _waitForIceConnected(peerConnection);
@@ -775,50 +836,47 @@ class WhipPublisher implements StreamPublisher {
     ).timeout(const Duration(seconds: 12));
   }
 
+  void _saveWhipSessionUri(Uri whipUri, http.Response response) {
+    final location = response.headers['location'];
+    if (location == null || location.trim().isEmpty) {
+      return;
+    }
+    _sessionUri = whipUri.resolve(location.trim());
+  }
+
   Future<void> _verifyReadyForRemoteDescription(
     RTCPeerConnection peerConnection,
     int peerConnectionId,
   ) async {
+    final actualPeerConnectionId = identityHashCode(peerConnection);
     final signalingState = await peerConnection.getSignalingState();
     final currentLocalDescription = await peerConnection.getLocalDescription();
-    final currentRemoteDescription = await peerConnection
-        .getRemoteDescription();
+    final localSdp = currentLocalDescription?.sdp;
 
     _logWhip(
-      'before-setRemoteDescription',
+      'verify-before-remote',
       fields: {
-        'pcId': peerConnectionId,
+        'pcId': actualPeerConnectionId,
+        'expectedPcId': peerConnectionId,
         'signalingState': _enumName(signalingState),
         'localType': currentLocalDescription?.type,
-        'localSdpLength': currentLocalDescription?.sdp?.length ?? 0,
-        'hasRemoteDescription': currentRemoteDescription != null,
-        'remoteType': currentRemoteDescription?.type,
+        'localSdpLength': localSdp?.length ?? 0,
+        'remoteDescriptionApplied': _negotiation.remoteDescriptionApplied,
       },
     );
 
-    if (signalingState != RTCSignalingState.RTCSignalingStateHaveLocalOffer) {
-      throw StreamingException(
-        StreamingErrorCode.invalidPeerConnectionState,
-        '设置 SDP Answer 前 PeerConnection 状态错误：'
-        '${_enumName(signalingState)}，预期 have-local-offer。',
-      );
-    }
-
-    if (currentLocalDescription?.type?.toLowerCase() != 'offer' ||
-        currentLocalDescription?.sdp == null ||
-        currentLocalDescription!.sdp!.isEmpty) {
-      throw const StreamingException(
-        StreamingErrorCode.invalidPeerConnectionState,
-        '设置 SDP Answer 前 LocalDescription 无效。',
-      );
-    }
-
-    if (currentRemoteDescription != null) {
-      throw const StreamingException(
-        StreamingErrorCode.invalidPeerConnectionState,
-        '设置 SDP Answer 前已经存在 RemoteDescription。',
-      );
-    }
+    validateRemoteDescriptionReadiness(
+      RemoteDescriptionReadiness(
+        peerConnectionMatches: actualPeerConnectionId == peerConnectionId,
+        remoteDescriptionApplied: _negotiation.remoteDescriptionApplied,
+        signalingStateIsHaveLocalOffer:
+            signalingState == RTCSignalingState.RTCSignalingStateHaveLocalOffer,
+        hasLocalDescription: currentLocalDescription != null,
+        localTypeIsOffer:
+            currentLocalDescription?.type?.toLowerCase() == 'offer',
+        hasLocalSdp: localSdp != null && localSdp.isNotEmpty,
+      ),
+    );
   }
 
   Future<void> _configureVideoSender(

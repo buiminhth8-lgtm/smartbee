@@ -295,6 +295,137 @@ void main() {
     );
   });
 
+  test('WHIP negotiation guard resets remote description state', () {
+    final guard = WhipNegotiationGuard();
+    final generation = guard.begin();
+
+    guard.markRemoteDescriptionApplied(generation);
+    expect(guard.remoteDescriptionApplied, isTrue);
+
+    guard.reset();
+
+    expect(guard.remoteDescriptionApplied, isFalse);
+    expect(guard.isStarting, isFalse);
+    expect(guard.isPublishing, isFalse);
+  });
+
+  test('allows first remote answer when local offer is ready', () {
+    const readiness = RemoteDescriptionReadiness(
+      peerConnectionMatches: true,
+      remoteDescriptionApplied: false,
+      signalingStateIsHaveLocalOffer: true,
+      hasLocalDescription: true,
+      localTypeIsOffer: true,
+      hasLocalSdp: true,
+    );
+
+    expect(
+      () => validateRemoteDescriptionReadiness(readiness),
+      returnsNormally,
+    );
+  });
+
+  test('rejects duplicate remote answer', () {
+    const readiness = RemoteDescriptionReadiness(
+      peerConnectionMatches: true,
+      remoteDescriptionApplied: true,
+      signalingStateIsHaveLocalOffer: true,
+      hasLocalDescription: true,
+      localTypeIsOffer: true,
+      hasLocalSdp: true,
+    );
+
+    expect(
+      () => validateRemoteDescriptionReadiness(readiness),
+      throwsA(
+        isA<StreamingException>().having(
+          (error) => error.code,
+          'code',
+          StreamingErrorCode.invalidPeerConnectionState,
+        ),
+      ),
+    );
+  });
+
+  test('rejects answer when signaling state is not have-local-offer', () {
+    const readiness = RemoteDescriptionReadiness(
+      peerConnectionMatches: true,
+      remoteDescriptionApplied: false,
+      signalingStateIsHaveLocalOffer: false,
+      hasLocalDescription: true,
+      localTypeIsOffer: true,
+      hasLocalSdp: true,
+    );
+
+    expect(
+      () => validateRemoteDescriptionReadiness(readiness),
+      throwsA(
+        isA<StreamingException>().having(
+          (error) => error.code,
+          'code',
+          StreamingErrorCode.invalidPeerConnectionState,
+        ),
+      ),
+    );
+  });
+
+  test('rejects answer without local description', () {
+    const readiness = RemoteDescriptionReadiness(
+      peerConnectionMatches: true,
+      remoteDescriptionApplied: false,
+      signalingStateIsHaveLocalOffer: true,
+      hasLocalDescription: false,
+      localTypeIsOffer: false,
+      hasLocalSdp: false,
+    );
+
+    expect(
+      () => validateRemoteDescriptionReadiness(readiness),
+      throwsA(
+        isA<StreamingException>().having(
+          (error) => error.code,
+          'code',
+          StreamingErrorCode.invalidOfferSdp,
+        ),
+      ),
+    );
+  });
+
+  test('rejects answer when peer connection changed', () {
+    const readiness = RemoteDescriptionReadiness(
+      peerConnectionMatches: false,
+      remoteDescriptionApplied: false,
+      signalingStateIsHaveLocalOffer: true,
+      hasLocalDescription: true,
+      localTypeIsOffer: true,
+      hasLocalSdp: true,
+    );
+
+    expect(
+      () => validateRemoteDescriptionReadiness(readiness),
+      throwsA(
+        isA<StreamingException>().having(
+          (error) => error.code,
+          'code',
+          StreamingErrorCode.invalidPeerConnectionState,
+        ),
+      ),
+    );
+  });
+
+  test('readiness validation does not require remote description', () {
+    const readiness = RemoteDescriptionReadiness(
+      peerConnectionMatches: true,
+      remoteDescriptionApplied: false,
+      signalingStateIsHaveLocalOffer: true,
+      hasLocalDescription: true,
+      localTypeIsOffer: true,
+      hasLocalSdp: true,
+    );
+
+    validateRemoteDescriptionReadiness(readiness);
+  });
+
   test('posts complete SDP bytes to WHIP endpoint', () async {
     late http.Request capturedRequest;
     final client = MockClient((request) async {
