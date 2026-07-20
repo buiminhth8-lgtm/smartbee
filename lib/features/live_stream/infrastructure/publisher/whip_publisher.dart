@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -35,6 +36,20 @@ class StreamPublisherFactory {
   StreamPublisher create(PublishProtocol protocol) => _creator(protocol);
 }
 
+class WhipOfferRequestData {
+  const WhipOfferRequestData({
+    required this.uri,
+    required this.headers,
+    required this.bodyBytes,
+    required this.normalizedOfferSdp,
+  });
+
+  final Uri uri;
+  final Map<String, String> headers;
+  final List<int> bodyBytes;
+  final String normalizedOfferSdp;
+}
+
 String safeBodyPreview(String value, {int maxLength = 200}) {
   if (value.isEmpty) {
     return '<empty>';
@@ -52,22 +67,199 @@ String safeBodyPreview(String value, {int maxLength = 200}) {
   return '${normalized.substring(0, maxLength)}...';
 }
 
+String normalizeOfferSdp(String value) {
+  var result = value;
+  if (result.startsWith('\uFEFF')) {
+    result = result.substring(1);
+  }
+  result = result.trim();
+  final lines = result.split(RegExp(r'\r?\n'));
+  result = lines.join('\r\n');
+  if (!result.endsWith('\r\n')) {
+    result = '$result\r\n';
+  }
+  return result;
+}
+
+void validateOfferSdp(String sdp) {
+  if (sdp.isEmpty) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 为空。',
+    );
+  }
+
+  if (!sdp.startsWith('v=0')) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 不是以 v=0 开头。',
+    );
+  }
+
+  if (!sdp.contains('o=')) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 缺少 o= 字段。',
+    );
+  }
+
+  if (!sdp.contains('s=')) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 缺少 s= 字段。',
+    );
+  }
+
+  if (!sdp.contains('t=')) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 缺少 t= 字段。',
+    );
+  }
+
+  if (!sdp.contains('m=video')) {
+    throw const StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 缺少 m=video 媒体描述。',
+    );
+  }
+
+  final byteLength = utf8.encode(sdp).length;
+  if (byteLength < 100) {
+    throw StreamingException(
+      StreamingErrorCode.invalidOfferSdp,
+      'WHIP Offer SDP 长度异常：$byteLength bytes。',
+    );
+  }
+}
+
 String validateWhipOfferDescription(RTCSessionDescription? description) {
   final type = description?.type;
-  final sdp = description?.sdp?.trim();
+  final sdp = description?.sdp;
   if (type?.toLowerCase() != 'offer' || sdp == null || sdp.isEmpty) {
     throw const StreamingException(
       StreamingErrorCode.invalidOfferSdp,
       '本地 Offer SDP 无效，无法开始 WHIP 推流。',
     );
   }
-  if (!sdp.startsWith('v=0')) {
-    throw StreamingException(
-      StreamingErrorCode.invalidOfferSdp,
-      '本地 Offer SDP 格式无效：${safeBodyPreview(sdp)}',
+  final normalized = normalizeOfferSdp(sdp);
+  validateOfferSdp(normalized);
+  return normalized;
+}
+
+WhipOfferRequestData buildWhipOfferRequest({
+  required Uri uri,
+  required String offerSdp,
+  String? bearerToken,
+}) {
+  final normalized = normalizeOfferSdp(offerSdp);
+  validateOfferSdp(normalized);
+  final bodyBytes = utf8.encode(normalized);
+  final token = bearerToken?.trim() ?? '';
+  return WhipOfferRequestData(
+    uri: uri,
+    normalizedOfferSdp: normalized,
+    headers: <String, String>{
+      'Content-Type': 'application/sdp',
+      'Accept': 'application/sdp',
+      'Content-Length': bodyBytes.length.toString(),
+      if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+    },
+    bodyBytes: bodyBytes,
+  );
+}
+
+Future<http.Response> postWhipOffer({
+  required http.Client httpClient,
+  required Uri whipUri,
+  required String offerSdp,
+  String? bearerToken,
+}) async {
+  final request = buildWhipOfferRequest(
+    uri: whipUri,
+    offerSdp: offerSdp,
+    bearerToken: bearerToken,
+  );
+
+  debugPrint(
+    '[WHIP] step=request-start '
+    'method=POST '
+    'uri=$whipUri '
+    'contentType=${request.headers['Content-Type']} '
+    'contentLength=${request.bodyBytes.length} '
+    'sdpLength=${request.normalizedOfferSdp.length} '
+    'startsWithV0=${request.normalizedOfferSdp.startsWith('v=0')} '
+    'containsVideo=${request.normalizedOfferSdp.contains('m=video')}',
+  );
+
+  final response = await httpClient.post(
+    whipUri,
+    headers: request.headers,
+    body: request.bodyBytes,
+  );
+
+  debugPrint(
+    '[WHIP] step=response-received '
+    'status=${response.statusCode} '
+    'contentType=${response.headers['content-type']} '
+    'location=${response.headers['location']} '
+    'bodyLength=${response.bodyBytes.length}',
+  );
+
+  if (response.statusCode != 200 && response.statusCode != 201) {
+    debugPrint(
+      '[WHIP] step=request-rejected '
+      'status=${response.statusCode} '
+      'body=${safeBodyPreview(response.body)}',
     );
   }
-  return sdp;
+
+  return response;
+}
+
+void logOfferSummary(String sdp) {
+  final lines = sdp.split(RegExp(r'\r?\n'));
+  final mediaLines = lines.where((line) => line.startsWith('m=')).toList();
+  final directions = lines
+      .where(
+        (line) =>
+            line == 'a=sendonly' ||
+            line == 'a=sendrecv' ||
+            line == 'a=recvonly' ||
+            line == 'a=inactive',
+      )
+      .toList();
+  final candidates = lines
+      .where((line) => line.startsWith('a=candidate:'))
+      .length;
+  final codecs = lines
+      .where((line) => line.startsWith('a=rtpmap:'))
+      .take(20)
+      .toList();
+
+  debugPrint(
+    '[WHIP] step=offer-summary '
+    'charLength=${sdp.length} '
+    'byteLength=${utf8.encode(sdp).length} '
+    'lineCount=${lines.length} '
+    'mediaLines=$mediaLines '
+    'directions=$directions '
+    'candidateCount=$candidates',
+  );
+  for (final codec in codecs) {
+    debugPrint('[WHIP] offer-codec=$codec');
+  }
+}
+
+String mapWhipHttpError(int statusCode, String responseBody) {
+  final body = responseBody.trim();
+  if (statusCode == 400 && body.contains('"error":"EOF"')) {
+    return 'MediaMTX 未读取到完整的 WHIP Offer SDP。'
+        '请检查客户端请求体是否为空、是否被提前消费，'
+        '或是否错误使用流式请求。';
+  }
+
+  return 'WHIP 请求失败：HTTP $statusCode，${safeBodyPreview(body)}';
 }
 
 String validateWhipAnswerResponse(http.Response response) {
@@ -77,8 +269,7 @@ String validateWhipAnswerResponse(http.Response response) {
   if (response.statusCode != 201 && response.statusCode != 200) {
     throw StreamingException(
       _httpErrorCode(response.statusCode),
-      'WHIP 请求失败：HTTP ${response.statusCode}，'
-      '响应：${safeBodyPreview(answerSdp.isEmpty ? response.body : answerSdp)}',
+      mapWhipHttpError(response.statusCode, response.body),
     );
   }
 
@@ -216,6 +407,7 @@ class WhipPublisher implements StreamPublisher {
         'local-description-ready',
         fields: {'type': localDescription?.type, 'sdpLength': offerSdp.length},
       );
+      logOfferSummary(offerSdp);
 
       final whipUri = Uri.parse(_urlBuilder.build(config).whip);
       final response = await _postOffer(whipUri, config, offerSdp);
@@ -315,25 +507,12 @@ class WhipPublisher implements StreamPublisher {
     StreamServerConfig config,
     String offerSdp,
   ) async {
-    final headers = <String, String>{
-      'Content-Type': 'application/sdp',
-      'Accept': 'application/sdp',
-      if (config.hasBearerToken)
-        'Authorization': 'Bearer ${config.bearerToken.trim()}',
-    };
-    _logWhip(
-      'whip-request-start',
-      fields: {
-        'url': uri,
-        'offerLength': offerSdp.length,
-        'hasBearerToken': config.hasBearerToken,
-      },
-    );
-    final response = await _client
-        .post(uri, headers: headers, body: offerSdp)
-        .timeout(const Duration(seconds: 12));
-
-    return response;
+    return postWhipOffer(
+      httpClient: _client,
+      whipUri: uri,
+      offerSdp: offerSdp,
+      bearerToken: config.bearerToken,
+    ).timeout(const Duration(seconds: 12));
   }
 
   Future<void> _configureVideoSender(
