@@ -8,6 +8,7 @@
 
 - 地图模块：基于 `flutter_map` 展示 OpenStreetMap 地图，支持点击移动标记、显示经纬度和缩放控制。
 - 实时推流模块：基于 `flutter_webrtc` 采集摄像头或屏幕，通过 WHIP 发布到 MediaMTX，由服务器转换输出 RTSP、RTMP、HLS/LL-HLS 和 WebRTC。
+- 中文小说写作模块：基于 `ChangeNotifier` 管理作品、分卷、章节、正文编辑、自动保存和本地持久化。
 
 第一阶段客户端统一使用 WebRTC + WHIP，不实现六个平台各自的 FFmpeg RTMP/RTSP/HLS 原生直推。RTMP/RTSP 已保留扩展接口，但当前会明确返回未实现错误。
 
@@ -19,6 +20,7 @@
 - 页面：
   - 地图
   - 实时推流
+  - 小说写作
   - 设置
 
 移动端和窄屏使用底部导航，桌面宽屏使用 `NavigationRail`。页面使用 `IndexedStack` 保持状态，切换到地图页不会释放推流控制器。
@@ -73,6 +75,21 @@ MediaMTX Server
 - `RtmpPublisher` / `RtspPublisher`：保留接口，当前明确返回未实现。
 - `LiveStreamController`：基于 `ChangeNotifier` 管理状态、预览、推流、重连、日志和统计。
 - `StreamConfigStorage`：使用 `shared_preferences` 保存非敏感配置，默认不保存 Token。
+
+## 中文小说写作模块
+
+新增目录：`lib/features/novel_writing/`。
+
+- `domain/`：`NovelProject`、`NovelVolume`、`NovelChapter`、保存状态、写作状态和 Repository 接口。
+- `application/`：`NovelWritingController` 和 `NovelTextStatistics`。
+- `infrastructure/`：`LocalNovelRepository` 与条件导出的 `NovelStorage`，IO 平台使用文件系统，Web 使用 `shared_preferences`。
+- `presentation/`：响应式写作页面、目录、编辑器、保存状态、统计栏和创建对话框。
+
+自动保存规则：正文或标题变化后状态变为 dirty，800ms 后串行保存；保存失败时保留正文和 dirty 状态，切换章节前会先 `flush()`。IO 存储结构为 `<ApplicationDocuments>/smartbee/novels/index.json`、`<project-id>/manifest.json` 和 `chapters/<chapter-id>.json`，写入时使用 `.tmp` 与 `.bak` 备份恢复。
+
+快捷键：`Ctrl+S` / `Meta+S` 立即保存，`Ctrl+N` 新建章节。
+
+当前不支持 AI 续写、云同步、富文本、图片、全文搜索、EPUB 和多人协作。
 
 ## MediaMTX 开发环境
 

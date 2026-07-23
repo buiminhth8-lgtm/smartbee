@@ -1,9 +1,10 @@
 # Smartbee
 
-Smartbee 是一个 Flutter 跨平台应用，当前包含两个主要能力：
+Smartbee 是一个 Flutter 跨平台应用，当前包含三个主要能力：
 
 - 地图页面：基于 `flutter_map` 展示 OpenStreetMap 地图，支持点击移动标记、显示经纬度和缩放控制。
 - 实时推流：基于 `flutter_webrtc` 采集摄像头或屏幕，通过 WebRTC WHIP 发布到 MediaMTX，由服务器转换输出 RTSP、RTMP、HLS/LL-HLS 和 WebRTC。
+- 中文小说写作：管理小说作品、分卷和章节，支持中文正文编辑、800ms 自动保存、手动保存、备份恢复和本地持久化。
 
 ## 架构
 
@@ -106,6 +107,23 @@ dart run "-DMAP_TILE_URL_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png
 ```
 
 探针成功时应看到 `status=200` 且 `bytes>0`。如果无代理时超时、配置 HTTP 代理后成功，说明浏览器使用了代理网络路径，而 Dart 原生直连路径不可达。
+
+## 中文小说写作
+
+页面入口：底部导航或桌面宽屏 `NavigationRail` 中的“小说写作”。
+
+功能：
+
+- 创建和管理小说作品、分卷和章节。
+- 编辑章节标题和中文正文。
+- 停止输入约 800ms 后自动保存，也可使用保存按钮或 `Ctrl+S` / `Meta+S` 立即保存。
+- 自动保存使用 revision 串行化，旧保存任务不会覆盖新正文。
+- Windows、Linux、Android、iOS、macOS 使用 `<ApplicationDocuments>/smartbee/novels/` 文件目录，每个章节独立 JSON 文件保存。
+- Web 使用 `shared_preferences`，键名为 `novel_writing.index`、`novel_writing.project.<projectId>` 和 `novel_writing.chapter.<projectId>.<chapterId>`，不会复用直播配置键。
+- IO 平台写入采用 `.tmp`、`.bak` 原子替换流程；正式文件损坏时会尝试从备份恢复。
+- 字数统计使用 Unicode code point 遍历，不统计空格、制表符和换行，标点和 Emoji 当前计入字数。
+
+当前不支持 AI 续写、云同步、富文本、图片、全文搜索、EPUB 和多人协作。
 
 ## 实时推流功能
 
