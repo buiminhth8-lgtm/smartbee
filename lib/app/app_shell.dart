@@ -12,16 +12,21 @@ import '../features/novel_writing/application/novel_writing_controller.dart';
 import '../features/novel_writing/infrastructure/local_novel_repository.dart';
 import '../features/novel_writing/infrastructure/storage/novel_storage.dart';
 import '../features/novel_writing/presentation/novel_writing_page.dart';
+import 'app_appearance_controller.dart';
+import 'app_appearance_storage.dart';
+import 'appearance_settings_page.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     this.liveStreamController,
     this.novelWritingController,
+    this.appearanceController,
   });
 
   final LiveStreamController? liveStreamController;
   final NovelWritingController? novelWritingController;
+  final AppAppearanceController? appearanceController;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -30,6 +35,8 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   late final LiveStreamController _liveStreamController;
   late final NovelWritingController _novelWritingController;
+  late final AppAppearanceController _appearanceController;
+  late final bool _ownsAppearanceController;
   int _selectedIndex = 0;
 
   @override
@@ -49,8 +56,17 @@ class _AppShellState extends State<AppShell> {
             storage: NovelStorageFactory.create(),
           ),
         );
+    _ownsAppearanceController = widget.appearanceController == null;
+    _appearanceController =
+        widget.appearanceController ??
+        AppAppearanceController(
+          storage: SharedPreferencesAppAppearanceStorage(),
+        );
     _liveStreamController.loadSavedConfig();
     unawaited(_novelWritingController.loadLibrary());
+    if (_ownsAppearanceController) {
+      unawaited(_appearanceController.load());
+    }
   }
 
   @override
@@ -58,6 +74,9 @@ class _AppShellState extends State<AppShell> {
     _liveStreamController.dispose();
     unawaited(_novelWritingController.close());
     _novelWritingController.dispose();
+    if (_ownsAppearanceController) {
+      _appearanceController.dispose();
+    }
     super.dispose();
   }
 
@@ -71,7 +90,7 @@ class _AppShellState extends State<AppShell> {
       const MapPage(),
       LiveStreamPage(controller: _liveStreamController),
       NovelWritingPage(controller: _novelWritingController),
-      const _SettingsPage(),
+      AppearanceSettingsPage(controller: _appearanceController),
     ];
 
     return LayoutBuilder(
@@ -147,18 +166,6 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       },
-    );
-  }
-}
-
-class _SettingsPage extends StatelessWidget {
-  const _SettingsPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
-      body: const Center(child: Text('设置项将在后续版本扩展')),
     );
   }
 }

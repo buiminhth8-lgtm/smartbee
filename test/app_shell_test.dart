@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smartbee/app/app_appearance_controller.dart';
+import 'package:smartbee/app/app_appearance_storage.dart';
 import 'package:smartbee/app/app_shell.dart';
 import 'package:smartbee/features/live_stream/application/live_stream_controller.dart';
 import 'package:smartbee/features/novel_writing/application/novel_writing_controller.dart';
@@ -23,12 +25,17 @@ void main() {
     return NovelWritingController(repository: FakeNovelRepository());
   }
 
+  AppAppearanceController appearanceController() {
+    return AppAppearanceController(storage: FakeAppearanceStorage());
+  }
+
   testWidgets('地图页面可以打开', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: AppShell(
           liveStreamController: liveController(),
           novelWritingController: novelController(),
+          appearanceController: appearanceController(),
         ),
       ),
     );
@@ -43,6 +50,7 @@ void main() {
         home: AppShell(
           liveStreamController: liveController(),
           novelWritingController: novelController(),
+          appearanceController: appearanceController(),
         ),
       ),
     );
@@ -61,6 +69,7 @@ void main() {
         home: AppShell(
           liveStreamController: liveController(),
           novelWritingController: novelController(),
+          appearanceController: appearanceController(),
         ),
       ),
     );
@@ -73,4 +82,31 @@ void main() {
     expect(find.text('还没有小说作品'), findsOneWidget);
     expect(find.text('新建小说'), findsOneWidget);
   });
+
+  testWidgets('设置页面可以打开', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          liveStreamController: liveController(),
+          novelWritingController: novelController(),
+          appearanceController: appearanceController(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('设置').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('外观模式'), findsOneWidget);
+    expect(find.text('背景调色盘'), findsOneWidget);
+  });
+}
+
+class FakeAppearanceStorage implements AppAppearanceStorage {
+  @override
+  Future<StoredAppAppearance?> load() async => null;
+
+  @override
+  Future<void> save(StoredAppAppearance appearance) async {}
 }

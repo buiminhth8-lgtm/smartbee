@@ -9,6 +9,7 @@
 - 地图模块：基于 `flutter_map` 展示 OpenStreetMap 地图，支持点击移动标记、显示经纬度和缩放控制。
 - 实时推流模块：基于 `flutter_webrtc` 采集摄像头或屏幕，通过 WHIP 发布到 MediaMTX，由服务器转换输出 RTSP、RTMP、HLS/LL-HLS 和 WebRTC。
 - 中文小说写作模块：基于 `ChangeNotifier` 管理作品、分卷、章节、正文编辑、自动保存和本地持久化。
+- 外观设置模块：基于 `ChangeNotifier` 管理全局白昼/黑夜模式和背景调色盘。
 
 第一阶段客户端统一使用 WebRTC + WHIP，不实现六个平台各自的 FFmpeg RTMP/RTSP/HLS 原生直推。RTMP/RTSP 已保留扩展接口，但当前会明确返回未实现错误。
 
@@ -24,6 +25,18 @@
   - 设置
 
 移动端和窄屏使用底部导航，桌面宽屏使用 `NavigationRail`。页面使用 `IndexedStack` 保持状态，切换到地图页不会释放推流控制器。
+
+## 外观设置模块
+
+新增文件位于 `lib/app/`：
+
+- `AppAppearanceController`：全局外观状态控制器。
+- `AppAppearanceStorage`：使用 `shared_preferences` 保存主题模式和调色盘。
+- `AppPalette`：定义海蓝、森林、蜂蜜、紫藤、山茶、石墨六组背景色。
+- `buildSmartbeeTheme()`：根据调色盘和亮度生成 `ThemeData` / `darkTheme`。
+- `AppearanceSettingsPage`：设置页 UI，提供跟随系统、白昼、黑夜和背景调色盘切换。
+
+`SmartbeeApp` 持有全局外观控制器并将主题应用到整个 `MaterialApp`。`AppShell` 接收同一个控制器，确保设置页修改后立即影响地图、实时推流和小说写作页面。
 
 ## 核心目录
 

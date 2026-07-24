@@ -20,7 +20,6 @@ class _MapPageState extends State<MapPage> {
   late final MapTileHttpClientBundle _mapTileNetwork;
   String? _mapTileErrorMessage;
 
-  // 示例位置，可替换为你的业务坐标。
   LatLng _markerPosition = const LatLng(39.9042, 116.4074);
 
   @override
@@ -56,9 +55,7 @@ class _MapPageState extends State<MapPage> {
 
   void _changeZoom(double delta) {
     final camera = _mapController.camera;
-
     final newZoom = (camera.zoom + delta).clamp(_minZoom, _maxZoom).toDouble();
-
     _mapController.move(camera.center, newZoom);
   }
 
@@ -106,8 +103,6 @@ class _MapPageState extends State<MapPage> {
               initialZoom: 12,
               minZoom: _minZoom,
               maxZoom: _maxZoom,
-
-              // 点击地图后移动标记。
               onTap: (tapPosition, point) {
                 setState(() {
                   _markerPosition = point;
@@ -118,14 +113,11 @@ class _MapPageState extends State<MapPage> {
               TileLayer(
                 urlTemplate: _mapTileNetwork.tileUrlTemplate,
                 tileProvider: _mapTileNetwork.tileProvider,
-
                 userAgentPackageName: 'com.example.smartbee',
-
                 maxNativeZoom: 19,
                 panBuffer: 0,
                 errorTileCallback: _handleTileError,
               ),
-
               MarkerLayer(
                 markers: [
                   Marker(
@@ -141,7 +133,6 @@ class _MapPageState extends State<MapPage> {
                   ),
                 ],
               ),
-
               RichAttributionWidget(
                 attributions: const [
                   TextSourceAttribution('OpenStreetMap contributors'),
@@ -149,8 +140,6 @@ class _MapPageState extends State<MapPage> {
               ),
             ],
           ),
-
-          // 左上角显示当前标记经纬度。
           Positioned(
             top: 16,
             left: 16,
@@ -168,7 +157,6 @@ class _MapPageState extends State<MapPage> {
               ),
             ),
           ),
-
           if (_mapTileErrorMessage != null)
             Positioned(
               left: 16,
@@ -189,8 +177,6 @@ class _MapPageState extends State<MapPage> {
                 ),
               ),
             ),
-
-          // 右侧地图控制按钮，方便桌面端使用。
           Positioned(
             right: 16,
             bottom: 24,

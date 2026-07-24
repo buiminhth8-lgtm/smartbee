@@ -5,6 +5,7 @@ Smartbee 是一个 Flutter 跨平台应用，当前包含三个主要能力：
 - 地图页面：基于 `flutter_map` 展示 OpenStreetMap 地图，支持点击移动标记、显示经纬度和缩放控制。
 - 实时推流：基于 `flutter_webrtc` 采集摄像头或屏幕，通过 WebRTC WHIP 发布到 MediaMTX，由服务器转换输出 RTSP、RTMP、HLS/LL-HLS 和 WebRTC。
 - 中文小说写作：管理小说作品、分卷和章节，支持中文正文编辑、800ms 自动保存、手动保存、备份恢复和本地持久化。
+- 外观设置：支持跟随系统、白昼模式、黑夜模式，以及全局背景调色盘切换。
 
 ## 架构
 
@@ -124,6 +125,17 @@ dart run "-DMAP_TILE_URL_TEMPLATE=https://tile.openstreetmap.org/{z}/{x}/{y}.png
 - 字数统计使用 Unicode code point 遍历，不统计空格、制表符和换行，标点和 Emoji 当前计入字数。
 
 当前不支持 AI 续写、云同步、富文本、图片、全文搜索、EPUB 和多人协作。
+
+## 外观设置
+
+入口：导航中的“设置”页面。
+
+支持：
+
+- 跟随系统、白昼、黑夜三种主题模式。
+- 海蓝、森林、蜂蜜、紫藤、山茶、石墨六组背景调色盘。
+- 主题模式和调色盘使用 `shared_preferences` 保存，键名为 `app_appearance.theme_mode` 和 `app_appearance.palette`。
+- 外观设置作用于整个 `MaterialApp`，地图、实时推流、小说写作和设置页共享同一套 `ThemeData` / `darkTheme`。
 
 ## 实时推流功能
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smartbee/app/app_appearance_controller.dart';
+import 'package:smartbee/app/app_appearance_storage.dart';
 import 'package:smartbee/app/app_shell.dart';
 import 'package:smartbee/features/live_stream/application/live_stream_controller.dart';
 import 'package:smartbee/features/novel_writing/application/novel_writing_controller.dart';
@@ -20,12 +22,16 @@ void main() {
     final novelController = NovelWritingController(
       repository: FakeNovelRepository(),
     );
+    final appearanceController = AppAppearanceController(
+      storage: FakeAppearanceStorage(),
+    );
 
     await tester.pumpWidget(
       MaterialApp(
         home: AppShell(
           liveStreamController: liveController,
           novelWritingController: novelController,
+          appearanceController: appearanceController,
         ),
       ),
     );
@@ -35,4 +41,12 @@ void main() {
     expect(find.textContaining('经度'), findsOneWidget);
     expect(find.textContaining('纬度'), findsOneWidget);
   });
+}
+
+class FakeAppearanceStorage implements AppAppearanceStorage {
+  @override
+  Future<StoredAppAppearance?> load() async => null;
+
+  @override
+  Future<void> save(StoredAppAppearance appearance) async {}
 }
